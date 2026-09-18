@@ -29,9 +29,9 @@ button{font:inherit}
 #game{z-index:20;align-items:stretch;justify-content:center}
 .game-shell{width:min(100%,1120px);height:min(100%,900px);margin:auto;display:grid;grid-template-rows:minmax(210px,1.2fr) 6px minmax(155px,29vh) auto auto;gap:8px}
 .stage{position:relative;display:flex;align-items:flex-end;justify-content:center;overflow:visible;min-height:180px;padding-top:10px;padding-bottom:6px}
-.sans-wrap{position:relative;width:clamp(170px,36vw,260px);height:clamp(140px,30vh,210px);display:flex;align-items:flex-end;justify-content:center;flex:0 0 auto}
-.sans{max-width:100%;max-height:100%;width:auto;height:auto;display:block;image-rendering:pixelated}
-.eye-glow{position:absolute;width:10%;aspect-ratio:1;border-radius:50%;left:31.2%;top:28%;background:#3a68ff;opacity:0;filter:drop-shadow(0 0 4px #3a68ff) drop-shadow(0 0 12px #3a68ff) drop-shadow(0 0 24px #3a68ff);transition:opacity .08s}
+.sans-wrap{position:relative;width:clamp(170px,36vw,260px);aspect-ratio:255/205;display:block;flex:0 0 auto}
+.sans{width:100%;height:100%;object-fit:contain;display:block;image-rendering:pixelated}
+.eye-glow{position:absolute;width:8.5%;aspect-ratio:1;border-radius:45%;left:43.8%;top:21.2%;background:#3a68ff;opacity:0;filter:drop-shadow(0 0 4px #3a68ff) drop-shadow(0 0 12px #3a68ff) drop-shadow(0 0 24px #3a68ff);transition:opacity .08s}
 .eye-glow.on{opacity:1}
 .divider{height:6px;background:#fff}
 .dialogue{position:relative;border:6px solid #fff;background:#000;padding:18px 24px 30px;overflow:hidden;cursor:pointer;min-height:0}
