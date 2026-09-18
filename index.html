@@ -24,6 +24,8 @@ button{font:inherit}
 .pixel-btn{background:#000;color:#fff;border:4px solid #fff;padding:14px 28px;font-weight:900;cursor:pointer;box-shadow:6px 6px 0 #fff;min-width:170px}
 .pixel-btn:active{transform:translate(3px,3px);box-shadow:3px 3px 0 #fff}
 .small{font-size:12px;opacity:.48;margin-top:24px;line-height:1.6}
+.music-toggle{position:fixed;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));z-index:90;background:#000;color:#fff;border:2px solid #fff;padding:7px 10px;font-size:12px;font-weight:900;cursor:pointer;box-shadow:3px 3px 0 #fff}
+.music-toggle:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #fff}
 
 /* MAIN GAME */
 #game{z-index:20;align-items:stretch;justify-content:center}
@@ -100,11 +102,12 @@ button{font:inherit}
 <section id="start" class="screen">
   <div class="start-card">
     <h1 class="start-title">🎁 ゆうちゃんへ</h1>
-    <p class="start-copy">10さいの おたんじょうびサプライズ。<br>音が出るので、ボリュームに気をつけてね。</p>
+    <p class="start-copy">10さいの おたんじょうびサプライズ。<br>オリジナル8bit BGMが流れるので、ボリュームに気をつけてね。</p>
     <button id="startBtn" class="pixel-btn">▶ START</button>
     <div class="small">スマホ：画面タップ　／　PC：Enter・Space・Z</div>
   </div>
 </section>
+<button id="musicBtn" class="music-toggle hidden" type="button" aria-label="BGMのオンオフ">♪ BGM ON</button>
 
 <main id="game" class="screen hidden">
   <div class="game-shell">
@@ -164,22 +167,189 @@ const dialoguePages = [
 ];
 
 const els={
-  start:document.getElementById('start'), game:document.getElementById('game'), battle:document.getElementById('battle'), finale:document.getElementById('finale'),
-  startBtn:document.getElementById('startBtn'), replayBtn:document.getElementById('replayBtn'), continueBtn:document.getElementById('continueBtn'), continuePanel:document.getElementById('continuePanel'),
-  text:document.getElementById('dialogueText'), next:document.getElementById('next'), eye:document.getElementById('eyeGlow'), dialogue:document.getElementById('dialogue'), stage:document.getElementById('stage'), flash:document.getElementById('flash')
+  start:document.getElementById('start'),
+  game:document.getElementById('game'),
+  battle:document.getElementById('battle'),
+  finale:document.getElementById('finale'),
+  startBtn:document.getElementById('startBtn'),
+  replayBtn:document.getElementById('replayBtn'),
+  continueBtn:document.getElementById('continueBtn'),
+  continuePanel:document.getElementById('continuePanel'),
+  musicBtn:document.getElementById('musicBtn'),
+  text:document.getElementById('dialogueText'),
+  next:document.getElementById('next'),
+  eye:document.getElementById('eyeGlow'),
+  dialogue:document.getElementById('dialogue'),
+  stage:document.getElementById('stage'),
+  flash:document.getElementById('flash')
 };
+
 let idx=0,typing=false,skip=false,started=false,waiting=false,ended=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function audioCtx(){
-  try{const AC=window.AudioContext||window.webkitAudioContext; if(!window.__ac)window.__ac=new AC(); return window.__ac;}catch(e){return null;}
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return null;
+    if(!window.__ac)window.__ac=new AC();
+    return window.__ac;
+  }catch(e){return null}
 }
+
 function blip(freq=360,dur=.022,vol=.016){
-  const ac=audioCtx(); if(!ac)return;
-  const o=ac.createOscillator(),g=ac.createGain(); o.type='square';o.frequency.value=freq;g.gain.value=vol;o.connect(g);g.connect(ac.destination);o.start();g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);o.stop(ac.currentTime+dur);
+  try{
+    const ac=audioCtx(); if(!ac)return;
+    const o=ac.createOscillator(),g=ac.createGain();
+    o.type='square';o.frequency.value=freq;g.gain.value=vol;
+    o.connect(g);g.connect(ac.destination);o.start();
+    g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+dur);
+    o.stop(ac.currentTime+dur);
+  }catch(e){}
 }
-function chord(){[520,660,830].forEach((f,i)=>setTimeout(()=>blip(f,.11,.025),i*90));}
-function eye(ms=900){els.eye.classList.add('on');setTimeout(()=>els.eye.classList.remove('on'),ms)}
+
+function chord(){
+  [520,660,830].forEach((f,i)=>setTimeout(()=>blip(f,.11,.025),i*90));
+}
+
+function eye(ms=900){
+  els.eye.classList.add('on');
+  setTimeout(()=>els.eye.classList.remove('on'),ms);
+}
+
+/* ---------- Original retro-RPG 8bit BGM ---------- */
+const bgm={
+  playing:false,
+  muted:false,
+  step:0,
+  nextTime:0,
+  timer:null,
+  gain:null
+};
+
+const BPM=112;
+const STEP=60/BPM/2; // eighth note
+
+// Original 32-step melody; intentionally not copied from any game soundtrack.
+const leadSeq=[
+  69,null,72,76,74,null,72,71,
+  69,null,76,79,77,76,72,null,
+  67,null,71,74,72,null,71,69,
+  65,69,72,76,74,72,71,null
+];
+const bassRoots=[45,45,41,43,45,40,41,43];
+const arpChords=[
+  [57,60,64],[57,60,64],[53,57,60],[55,59,62],
+  [57,60,64],[52,56,59],[53,57,60],[55,59,62]
+];
+
+function midiToFreq(n){return 440*Math.pow(2,(n-69)/12)}
+
+function synthNote(freq,start,dur,type,vol,destination){
+  try{
+    const ac=audioCtx(); if(!ac||!destination)return;
+    const o=ac.createOscillator(),g=ac.createGain();
+    o.type=type;o.frequency.setValueAtTime(freq,start);
+    g.gain.setValueAtTime(.0001,start);
+    g.gain.exponentialRampToValueAtTime(vol,start+.008);
+    g.gain.exponentialRampToValueAtTime(.0001,start+dur);
+    o.connect(g);g.connect(destination);
+    o.start(start);o.stop(start+dur+.02);
+  }catch(e){}
+}
+
+function ensureBgmGain(){
+  const ac=audioCtx(); if(!ac)return null;
+  if(!bgm.gain){
+    bgm.gain=ac.createGain();
+    bgm.gain.gain.value=bgm.muted?0:.72;
+    bgm.gain.connect(ac.destination);
+  }
+  return bgm.gain;
+}
+
+function scheduleBgmStep(stepIndex,time){
+  const dest=ensureBgmGain(); if(!dest)return;
+  const pos=stepIndex%32;
+  const bar=Math.floor(pos/4)%8;
+
+  // Lead channel
+  const lead=leadSeq[pos];
+  if(lead!==null)synthNote(midiToFreq(lead),time,STEP*.72,'square',.038,dest);
+
+  // Soft arpeggio channel
+  const chordNotes=arpChords[bar];
+  const arpNote=chordNotes[pos%3]+12;
+  synthNote(midiToFreq(arpNote),time,STEP*.42,'square',.010,dest);
+
+  // Bass channel on quarter-note pulses
+  if(pos%2===0){
+    const bass=bassRoots[Math.floor(pos/4)%8];
+    synthNote(midiToFreq(bass),time,STEP*1.65,'triangle',.050,dest);
+  }
+
+  // Tiny pulse percussion
+  if(pos%4===2)synthNote(92,time,.045,'square',.012,dest);
+}
+
+function bgmScheduler(){
+  const ac=audioCtx(); if(!ac||!bgm.playing)return;
+  while(bgm.nextTime<ac.currentTime+.14){
+    scheduleBgmStep(bgm.step,bgm.nextTime);
+    bgm.nextTime+=STEP;
+    bgm.step++;
+  }
+}
+
+async function startBgm(){
+  const ac=audioCtx(); if(!ac)return;
+  try{if(ac.state==='suspended')await ac.resume()}catch(e){}
+  ensureBgmGain();
+  if(bgm.playing)return;
+  bgm.playing=true;
+  bgm.step=0;
+  bgm.nextTime=ac.currentTime+.05;
+  bgmScheduler();
+  bgm.timer=setInterval(bgmScheduler,25);
+}
+
+function setBgmLevel(value,seconds=.12){
+  try{
+    const ac=audioCtx(); if(!ac||!bgm.gain)return;
+    const now=ac.currentTime;
+    bgm.gain.gain.cancelScheduledValues(now);
+    bgm.gain.gain.setValueAtTime(Math.max(.0001,bgm.gain.gain.value),now);
+    bgm.gain.gain.exponentialRampToValueAtTime(Math.max(.0001,value),now+seconds);
+  }catch(e){}
+}
+
+function stopBgm(fade=.25){
+  if(!bgm.playing)return;
+  setBgmLevel(.0001,fade);
+  bgm.playing=false;
+  if(bgm.timer){clearInterval(bgm.timer);bgm.timer=null}
+}
+
+function updateMusicButton(){
+  els.musicBtn.textContent=bgm.muted?'♪ BGM OFF':'♪ BGM ON';
+}
+
+function toggleBgm(){
+  bgm.muted=!bgm.muted;
+  updateMusicButton();
+  if(bgm.gain)setBgmLevel(bgm.muted?.0001:.72,.12);
+}
+
+function finaleJingle(){
+  const ac=audioCtx(); if(!ac)return;
+  const start=ac.currentTime+.05;
+  const notes=[60,64,67,72,76,79];
+  notes.forEach((n,i)=>{
+    const dest=ensureBgmGain();
+    synthNote(midiToFreq(n),start+i*.11,.18,'square',.045,dest);
+  });
+}
+/* ------------------------------------------------ */
+
 function charDelay(ch){
   if(ch==='\n')return 150;
   if(ch==='。'||ch==='！'||ch==='？')return 260;
@@ -188,45 +358,107 @@ function charDelay(ch){
   if(ch===' ')return 18;
   return 34+Math.floor(Math.random()*12);
 }
+
 async function typeText(page){
-  typing=true;skip=false;waiting=false;els.next.classList.remove('show');els.text.textContent='';
+  typing=true;skip=false;waiting=false;
+  els.next.classList.remove('show');
+  els.text.textContent='';
   for(let i=0;i<page.text.length;i++){
-    if(skip){els.text.textContent=page.text;break;}
-    const ch=page.text[i];els.text.textContent+=ch;
-    if(![' ','\n','＊','、','。','！','？','…','―'].includes(ch) && i%2===0) blip(330+(i%5)*22,.02,.014);
+    if(skip){els.text.textContent=page.text;break}
+    const ch=page.text[i];
+    els.text.textContent+=ch;
+    if(![' ','\n','＊','、','。','！','？','…','―'].includes(ch)&&i%2===0){
+      blip(330+(i%5)*22,.02,.014);
+    }
     await sleep(charDelay(ch));
   }
   typing=false;
   if(page.eye)eye(page.fanfare?1200:850);
-  if(page.fanfare)chord();
+  if(page.fanfare){
+    setBgmLevel(bgm.muted?.0001:.22,.08);
+    chord();
+    setTimeout(()=>setBgmLevel(bgm.muted?.0001:.72,.35),650);
+  }
   await sleep(page.after||500);
-  waiting=true;els.next.classList.add('show');
+  waiting=true;
+  els.next.classList.add('show');
 }
-async function showPage(){if(idx>=dialoguePages.length){return startBattle();} await typeText(dialoguePages[idx]);}
+
+async function showPage(){
+  if(idx>=dialoguePages.length){await startBattle();return}
+  await typeText(dialoguePages[idx]);
+}
+
 async function advance(){
   if(!started||ended)return;
-  if(typing){skip=true;return;}
+  if(typing){skip=true;return}
   if(!waiting)return;
-  idx++; await showPage();
+  idx++;
+  await showPage();
 }
+
 async function startBattle(){
-  waiting=false;els.next.classList.remove('show');els.game.classList.add('hidden');els.battle.classList.remove('hidden');
-  blip(250,.18,.028); await sleep(1850); els.flash.classList.add('go'); chord(); await sleep(300); els.battle.classList.add('hidden');els.finale.classList.remove('hidden');
-  setTimeout(()=>els.flash.classList.remove('go'),600);ended=true;
+  waiting=false;
+  els.next.classList.remove('show');
+  stopBgm(.28);
+  els.game.classList.add('hidden');
+  els.battle.classList.remove('hidden');
+  blip(250,.18,.028);
+  await sleep(1850);
+  els.flash.classList.add('go');
+  chord();
+  await sleep(300);
+  els.battle.classList.add('hidden');
+  els.finale.classList.remove('hidden');
+  setTimeout(()=>els.flash.classList.remove('go'),600);
+  setTimeout(finaleJingle,180);
+  ended=true;
 }
+
 async function startShow(){
-  if(started)return;started=true;ended=false;idx=0;els.start.classList.add('hidden');els.game.classList.remove('hidden');
-  const ac=audioCtx(); if(ac&&ac.state==='suspended')await ac.resume();
-  await sleep(250);await showPage();
+  if(started)return;
+  started=true;ended=false;idx=0;
+  els.start.classList.add('hidden');
+  els.game.classList.remove('hidden');
+  els.musicBtn.classList.remove('hidden');
+  const ac=audioCtx();
+  try{if(ac&&ac.state==='suspended')await ac.resume()}catch(e){}
+  await startBgm();
+  await sleep(250);
+  await showPage();
 }
+
 function reset(){
-  started=false;ended=false;typing=false;skip=false;waiting=false;idx=0;els.text.textContent='';els.next.classList.remove('show');els.eye.classList.remove('on');els.continuePanel.classList.remove('show');els.finale.classList.add('hidden');els.battle.classList.add('hidden');els.game.classList.add('hidden');els.start.classList.remove('hidden');
+  stopBgm(.05);
+  started=false;ended=false;typing=false;skip=false;waiting=false;idx=0;
+  els.text.textContent='';
+  els.next.classList.remove('show');
+  els.eye.classList.remove('on');
+  els.continuePanel.classList.remove('show');
+  els.finale.classList.add('hidden');
+  els.battle.classList.add('hidden');
+  els.game.classList.add('hidden');
+  els.musicBtn.classList.add('hidden');
+  els.start.classList.remove('hidden');
 }
+
 els.startBtn.addEventListener('click',startShow);
-els.dialogue.addEventListener('click',advance);els.stage.addEventListener('click',advance);
+els.dialogue.addEventListener('click',advance);
+els.stage.addEventListener('click',advance);
 els.replayBtn.addEventListener('click',reset);
-els.continueBtn.addEventListener('click',()=>{els.continuePanel.classList.add('show');chord();});
-document.addEventListener('keydown',e=>{if(['Enter',' ','z','Z'].includes(e.key)){e.preventDefault();if(!started)startShow();else advance();}});
+els.continueBtn.addEventListener('click',()=>{
+  els.continuePanel.classList.add('show');
+  chord();
+});
+els.musicBtn.addEventListener('click',toggleBgm);
+
+document.addEventListener('keydown',e=>{
+  if(['Enter',' ','z','Z'].includes(e.key)){
+    e.preventDefault();
+    if(!started)startShow();else advance();
+  }
+});
+updateMusicButton();
 </script>
 </body>
 </html>
